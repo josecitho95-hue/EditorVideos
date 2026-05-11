@@ -135,8 +135,11 @@ class TestFilterComplex:
 
 class TestCropComputation:
     def test_9_16_crop_width(self) -> None:
+        # compute_center_crop uses floor-to-even: int(1080*1080/1920)=607 → 606
         crop = compute_center_crop(input_w=1920, input_h=1080)
-        assert crop.w == 608, f"Expected crop.w=608 for 1920x1080, got {crop.w}"
+        assert crop.w == 606, f"Expected crop.w=606 for 1920x1080, got {crop.w}"
+        # Sanity: crop must stay within source bounds
+        assert crop.x + crop.w <= 1920
 
     def test_9_16_crop_height(self) -> None:
         crop = compute_center_crop(input_w=1920, input_h=1080)
@@ -144,13 +147,15 @@ class TestCropComputation:
 
     def test_crop_x_centers(self) -> None:
         crop = compute_center_crop(input_w=1920, input_h=1080)
-        assert crop.x == (1920 - 608) // 2, (
-            f"Expected crop.x={(1920-608)//2}, got {crop.x}"
+        assert crop.x == (1920 - 606) // 2, (
+            f"Expected crop.x={(1920-606)//2}, got {crop.x}"
         )
 
     def test_4k_input(self) -> None:
+        # floor-to-even: int(2160*1080/1920)=1215 → 1214
         crop = compute_center_crop(input_w=3840, input_h=2160)
-        assert crop.w == 1216, f"Expected crop.w=1216 for 3840x2160, got {crop.w}"
+        assert crop.w == 1214, f"Expected crop.w=1214 for 3840x2160, got {crop.w}"
+        assert crop.x + crop.w <= 3840
 
 
 # ---------------------------------------------------------------------------

@@ -20,6 +20,8 @@ class ChatSignal(BaseModel):
     msg_per_sec: float
     unique_users: int
     keyword_score: float
+    emote_score: float = Field(ge=0.0, le=1.0, default=0.0)   # weighted emote intensity (normalised)
+    spike_score: float = Field(ge=0.0, le=1.0, default=0.0)   # burst above 30s rolling baseline
     sentiment: float = Field(ge=-1.0, le=1.0, default=0.0)
 
 

@@ -106,16 +106,15 @@ class TestZoomEventValidation:
         z = _make_zoom_event(intensity=2.5)
         assert z.intensity == 2.5
 
-    def test_intensity_below_lower_bound_raises(self) -> None:
-        """TC-DOM-004: intensity < 1.0 must raise ValidationError."""
-        with pytest.raises(ValidationError) as exc_info:
-            _make_zoom_event(intensity=0.9)
-        assert "intensity" in str(exc_info.value).lower()
+    def test_intensity_below_lower_bound_clamped(self) -> None:
+        """TC-DOM-004: intensity < 1.0 is clamped to 1.0 (LLM-output tolerance)."""
+        z = _make_zoom_event(intensity=0.9)
+        assert z.intensity == 1.0
 
-    def test_intensity_above_upper_bound_raises(self) -> None:
-        """TC-DOM-004: intensity > 2.5 must raise ValidationError."""
-        with pytest.raises(ValidationError):
-            _make_zoom_event(intensity=2.6)
+    def test_intensity_above_upper_bound_clamped(self) -> None:
+        """TC-DOM-004: intensity > 2.5 is clamped to 2.5 (LLM-output tolerance)."""
+        z = _make_zoom_event(intensity=2.6)
+        assert z.intensity == 2.5
 
     def test_duration_lower_bound(self) -> None:
         z = _make_zoom_event(duration_sec=0.1)

@@ -16,7 +16,7 @@ same order as their corresponding ``sfx_cues`` / ``narration_cues`` lists.
 from __future__ import annotations
 
 from autoedit.domain.edit_decision import MemeOverlay, NarrationCue, SfxCue, ZoomEvent, ZoomKind
-from autoedit.render.reframe import CropParams
+from autoedit.render.reframe import CropParams, SplitLayout
 
 
 # ---------------------------------------------------------------------------
@@ -32,6 +32,7 @@ def build_render_command(
     output_codec: str = "h264_nvenc",
     nvenc_preset: str = "p4",
     crop: CropParams | None = None,
+    split_layout: SplitLayout | None = None,
     meme_overlays: list[MemeOverlay] | None = None,
     sfx_cues: list[SfxCue] | None = None,
     narration_cues: list[NarrationCue] | None = None,
@@ -88,6 +89,7 @@ def build_render_command(
         zoom_events=_zoom_events,
         subtitle_path=subtitle_path,
         crop=crop,
+        split_layout=split_layout,
         meme_input_offset=meme_input_offset,
         sfx_input_offset=sfx_input_offset,
         sfx_available=len(_sfx_paths),
@@ -100,6 +102,18 @@ def build_render_command(
 
     if filter_complex:
         cmd.extend(["-filter_complex", filter_complex, "-map", "[vout]", "-map", "[aout]"])
+    elif split_layout:
+        sl = split_layout
+        gc, fc = sl.game_crop, sl.face_crop
+        cmd.extend([
+            "-filter_complex",
+            f"[0:v]split=2[sg][sf];"
+            f"[sg]crop={gc.w}:{gc.h}:{gc.x}:{gc.y},scale={sl.output_w}:{sl.top_h}[top];"
+            f"[sf]crop={fc.w}:{fc.h}:{fc.x}:{fc.y},scale={sl.output_w}:{sl.bot_h}[bot];"
+            f"[top][bot]vstack=inputs=2[vout];"
+            f"[0:a]anull[aout]",
+            "-map", "[vout]", "-map", "[aout]",
+        ])
     elif crop:
         cmd.extend([
             "-vf",
@@ -145,6 +159,7 @@ def build_filter_complex(
     zoom_events: list[ZoomEvent] | None = None,
     subtitle_path: str | None = None,
     crop: CropParams | None = None,
+    split_layout: SplitLayout | None = None,
     meme_input_offset: int = 1,
     sfx_input_offset: int | None = None,
     sfx_available: int = 0,
@@ -180,14 +195,26 @@ def build_filter_complex(
     filters: list[str] = []
 
     # ------------------------------------------------------------------ video
-    video_chain = "[0:v]"
-
-    if crop:
+    # Three mutually exclusive layout modes:
+    #   split_layout  → two-section portrait stack (gameplay top / face bottom)
+    #   crop          → single smart/center crop then scale
+    #   (neither)     → simple scale only
+    if split_layout:
+        sl = split_layout
+        gc, fc = sl.game_crop, sl.face_crop
+        # Split the input into two streams, crop+scale each, then vstack.
         filters.append(
-            f"{video_chain}crop={crop.w}:{crop.h}:{crop.x}:{crop.y},scale={output_w}:{output_h}[v0]"
+            f"[0:v]split=2[_sg][_sf];"
+            f"[_sg]crop={gc.w}:{gc.h}:{gc.x}:{gc.y},scale={sl.output_w}:{sl.top_h}[_top];"
+            f"[_sf]crop={fc.w}:{fc.h}:{fc.x}:{fc.y},scale={sl.output_w}:{sl.bot_h}[_bot];"
+            f"[_top][_bot]vstack=inputs=2[v0]"
+        )
+    elif crop:
+        filters.append(
+            f"[0:v]crop={crop.w}:{crop.h}:{crop.x}:{crop.y},scale={output_w}:{output_h}[v0]"
         )
     else:
-        filters.append(f"{video_chain}scale={output_w}:{output_h}[v0]")
+        filters.append(f"[0:v]scale={output_w}:{output_h}[v0]")
     video_chain = "[v0]"
 
     for i, zoom in enumerate(_zoom_events):

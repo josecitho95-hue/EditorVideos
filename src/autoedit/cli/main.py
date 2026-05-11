@@ -45,5 +45,25 @@ def dashboard(
     from autoedit.dashboard.app import launch
     launch(port=port, open_browser=not no_browser)
 
+
+@app.command()
+def gui(
+    port: int = typer.Option(7880, "--port", "-p", help="Port to listen on"),
+    no_browser: bool = typer.Option(False, "--no-browser", help="Do not open browser automatically"),
+) -> None:
+    """Launch the NiceGUI editor (http://localhost:7880).
+
+    Full-featured web UI with interactive timeline editor, clip gallery,
+    job browser and live save/render integration.
+
+    Example::
+
+        autoedit gui
+        autoedit gui --port 7881 --no-browser
+    """
+    from autoedit.gui.app import launch
+    launch(port=port, open_browser=not no_browser)
+
+
 if __name__ == "__main__":
     app()

@@ -13,7 +13,13 @@ from rich.table import Table
 from autoedit.domain.ids import ClipId, new_id
 from autoedit.render.compositor import build_render_command
 from autoedit.render.ffmpeg_runner import run_ffmpeg
-from autoedit.render.reframe import FORMAT_DIMENSIONS, OutputFormat, compute_crop, compute_smart_crop
+from autoedit.render.reframe import (
+    FORMAT_DIMENSIONS,
+    OutputFormat,
+    compute_crop,
+    compute_smart_crop,
+    compute_split_layout,
+)
 from autoedit.render.subtitles import Word, build_ass_subtitles
 from autoedit.settings import settings
 from autoedit.storage.db import ClipModel, get_session
@@ -129,6 +135,7 @@ def render(
     top_n: int = typer.Option(5, "--top", "-n", help="Number of top windows to render"),
     output_dir: str | None = typer.Option(None, "--output-dir", "-o", help="Output directory for clips"),
     fmt: str = typer.Option("youtube", "--format", "-f", help="Output format: youtube (default), tiktok, shorts, square"),
+    layout: str = typer.Option("crop", "--layout", "-l", help="Layout mode: crop (default, smart/center crop) | split (gameplay top + face close-up bottom)"),
 ) -> None:
     """Render top-N scoring windows into MP4 clips (quick preview).
 
@@ -203,8 +210,23 @@ def render(
             ass_content = build_ass_subtitles(words, play_res_x=output_w, play_res_y=output_h)
             ass_path.write_text(ass_content, encoding="utf-8")
 
-        # Use smart (face-aware) crop for portrait formats; center crop for landscape.
-        if fmt_key in ("tiktok", "shorts"):
+        # Layout selection:
+        #   split → split-screen (game top / face bottom) — portrait only
+        #   crop  → smart/center crop (default)
+        layout_key = layout.lower()
+        split = None
+        crop = None
+        if layout_key == "split" and fmt_key in ("tiktok", "shorts"):
+            split = compute_split_layout(
+                video_path=str(source_path),
+                start_sec=window.start_sec,
+                end_sec=window.end_sec,
+                input_w=input_w,
+                input_h=input_h,
+                output_w=output_w,
+                output_h=output_h,
+            )
+        elif fmt_key in ("tiktok", "shorts"):
             crop = compute_smart_crop(
                 video_path=str(source_path),
                 start_sec=window.start_sec,
@@ -225,6 +247,7 @@ def render(
             output_codec=job.config.output_codec,
             nvenc_preset=settings.NVENC_PRESET,
             crop=crop,
+            split_layout=split,
             subtitle_path=str(ass_path) if words else None,
             output_w=output_w,
             output_h=output_h,
@@ -257,6 +280,8 @@ def render_edit(
     output_dir: str | None = typer.Option(None, "--output-dir", "-o", help="Output directory for clips"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Print FFmpeg commands without executing"),
     fmt: str = typer.Option("youtube", "--format", "-f", help="Output format: youtube (default), tiktok, shorts, square"),
+    layout: str = typer.Option("crop", "--layout", "-l", help="Layout mode: crop (default) | split (gameplay top + face bottom, portrait only)"),
+    dedup_iou: float = typer.Option(0.40, "--dedup-iou", help="IoU threshold for pre-render deduplication (0=off, 0.4=default)"),
 ) -> None:
     """Render clips from E7 EditDecisions with full effects.
 
@@ -313,6 +338,27 @@ def render_edit(
         if _w:
             _highlight_window_offset[str(_h.id)] = float(_w.start_sec)
     console.print(f"[dim]Window offsets loaded for {len(_highlight_window_offset)} highlight(s)[/dim]")
+
+    # --- Pre-render deduplication (IoU NMS on final time ranges) ---
+    if dedup_iou > 0:
+        from autoedit.scoring.dedup import DeduplicationInput, deduplicate_decisions
+
+        _hid_to_conf = {str(h.id): h.triage_confidence for h in _highlights}
+        dedup_inputs = [
+            DeduplicationInput(
+                decision=d,
+                window_offset=_highlight_window_offset.get(str(d.highlight_id), 0.0),
+                confidence=_hid_to_conf.get(str(d.highlight_id), 0.5),
+            )
+            for d in decisions
+        ]
+        kept = deduplicate_decisions(dedup_inputs, iou_threshold=dedup_iou)
+        if len(kept) < len(decisions):
+            console.print(
+                f"[yellow]Deduplication: {len(kept)}/{len(decisions)} decisions "
+                f"kept (IoU threshold={dedup_iou:.2f})[/yellow]"
+            )
+        decisions = [di.decision for di in kept]
 
     # Resolve output dimensions from --format
     fmt_key = fmt.lower()
@@ -412,8 +458,23 @@ def render_edit(
             ass_path.write_text(ass_content, encoding="utf-8")
 
         # --- Build FFmpeg command ---
-        # Smart (face-aware) crop for portrait formats; fast center crop for landscape.
-        if fmt_key in ("tiktok", "shorts"):
+        # Layout selection:
+        #   split → split-screen (game top / face bottom) — portrait only
+        #   crop  → smart/center crop (default)
+        layout_key = layout.lower()
+        _split_layout = None
+        crop = None
+        if layout_key == "split" and fmt_key in ("tiktok", "shorts"):
+            _split_layout = compute_split_layout(
+                video_path=str(source_path),
+                start_sec=start_sec,
+                end_sec=end_sec,
+                input_w=input_w,
+                input_h=input_h,
+                output_w=output_w,
+                output_h=output_h,
+            )
+        elif fmt_key in ("tiktok", "shorts"):
             crop = compute_smart_crop(
                 video_path=str(source_path),
                 start_sec=start_sec,
@@ -433,6 +494,7 @@ def render_edit(
             output_codec=job.config.output_codec,
             nvenc_preset=settings.NVENC_PRESET,
             crop=crop,
+            split_layout=_split_layout,
             meme_overlays=valid_meme_overlays,
             sfx_cues=valid_sfx_cues,
             narration_cues=valid_narration_cues,

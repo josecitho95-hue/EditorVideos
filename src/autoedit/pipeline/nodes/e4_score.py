@@ -28,12 +28,21 @@ async def run(state: PipelineState) -> None:
     from autoedit.domain.signals import AudioSignal, ChatSignal, SceneSignal
 
     n_rows = table.num_rows
+    col_names = set(table.column_names)
+
+    def _col(name: str, default: float = 0.0) -> list:
+        """Read column safely — returns list of defaults if column missing (old parquet)."""
+        if name in col_names:
+            return [table.column(name)[i].as_py() or default for i in range(n_rows)]
+        return [default] * n_rows
+
     audio_signals = [
         AudioSignal(
             t_sec=table.column("t_sec")[i].as_py(),
             rms_db=table.column("audio_rms_db")[i].as_py(),
             loudness_lufs=table.column("audio_loudness_lufs")[i].as_py(),
             pitch_hz=table.column("audio_pitch_hz")[i].as_py() or None,
+            laughter_prob=_col("audio_laughter_prob")[i],
         )
         for i in range(n_rows)
     ]
@@ -43,6 +52,8 @@ async def run(state: PipelineState) -> None:
             msg_per_sec=table.column("chat_msg_per_sec")[i].as_py(),
             unique_users=table.column("chat_unique_users")[i].as_py(),
             keyword_score=table.column("chat_kw_score")[i].as_py(),
+            emote_score=_col("chat_emote_score")[i],
+            spike_score=_col("chat_spike_score")[i],
             sentiment=table.column("chat_sentiment")[i].as_py(),
         )
         for i in range(n_rows)

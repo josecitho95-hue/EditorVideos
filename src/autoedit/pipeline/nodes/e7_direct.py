@@ -154,10 +154,15 @@ def _build_director_prompt(
 ═══ CLIP INFO ═══
 Intent    : {highlight.intent.value}
 Confidence: {highlight.triage_confidence:.0%}
-Window    : {window.start_sec:.1f}s – {window.end_sec:.1f}s  ({clip_duration:.1f}s total)
+Clip duration: {clip_duration:.1f}s  (timestamps below start at 0.0 = clip start)
 Context   : {highlight.triage_reasoning}
 
-═══ TRANSCRIPT WITH TIMING (relative to clip start) ═══
+IMPORTANT: All timestamps in your JSON (trim.start_sec, trim.end_sec, zoom at_sec,
+meme at_sec, sfx at_sec, narration at_sec) MUST be in seconds relative to the clip
+start (0.0). The maximum valid value is {clip_duration:.1f}. Do NOT use timestamps
+from outside this range.
+
+═══ TRANSCRIPT WITH TIMING (0.0 = clip start) ═══
 {transcript_block}
 
 ═══ AVAILABLE VISUAL ASSETS (meme overlays) ═══
@@ -167,8 +172,86 @@ Context   : {highlight.triage_reasoning}
 {audio_block}
 
 Use the transcript timestamps to place zoom/SFX/meme effects at the EXACT right second.
+All at_sec values must be between 0.0 and {clip_duration:.1f}.
 Generate the edit plan JSON now."""
     return prompt
+
+
+def _repair_raw(raw: dict[str, Any], clip_duration: float) -> dict[str, Any]:
+    """Fix common LLM JSON mistakes before Pydantic validation.
+
+    Known issues:
+    * ``cat_sec`` typo instead of ``at_sec`` in narration_cues / sfx_cues / meme_overlays
+    * Absolute timestamps when the model ignores the relative-time instruction
+      — detected by values > clip_duration; clamped to [0, clip_duration]
+    """
+    import copy
+    raw = copy.deepcopy(raw)
+
+    def _fix_at_sec(obj: dict) -> dict:
+        # Rename common typo variants to at_sec
+        for alias in ("cat_sec", "at_seconds", "start", "time_sec", "time"):
+            if alias in obj and "at_sec" not in obj:
+                obj["at_sec"] = obj.pop(alias)
+        # Clamp: if at_sec looks like an absolute timestamp (> clip_duration),
+        # shift it by subtracting the closest multiple of clip_duration, then clamp.
+        if "at_sec" in obj:
+            v = float(obj["at_sec"])
+            if v > clip_duration:
+                # Modulo brings it back into [0, clip_duration)
+                v = v % clip_duration if clip_duration > 0 else 0.0
+                obj["at_sec"] = round(v, 3)
+            obj["at_sec"] = max(0.0, min(obj["at_sec"], clip_duration))
+        return obj
+
+    # Fix trim timestamps
+    if "trim" in raw and isinstance(raw["trim"], dict):
+        t = raw["trim"]
+        for key in ("start_sec", "end_sec"):
+            if key in t:
+                v = float(t[key])
+                if v > clip_duration:
+                    v = v % clip_duration if clip_duration > 0 else 0.0
+                t[key] = round(max(0.0, min(v, clip_duration)), 3)
+        # Ensure start < end
+        if t.get("start_sec", 0) >= t.get("end_sec", clip_duration):
+            t["start_sec"] = 0.0
+            t["end_sec"] = clip_duration
+
+    for field in ("narration_cues", "sfx_cues", "meme_overlays", "zoom_events"):
+        if field in raw and isinstance(raw[field], list):
+            raw[field] = [_fix_at_sec(item) if isinstance(item, dict) else item
+                          for item in raw[field]]
+
+    return raw
+
+
+async def _call_director_llm(
+    highlight_id: str,
+    prompt: str,
+    temperature: float = 0.75,
+) -> dict[str, Any] | None:
+    """Single LLM call → parsed dict, or None on failure."""
+    try:
+        response = await openrouter.chat(
+            model=settings.DIRECTOR_MODEL,
+            messages=[
+                {"role": "system", "content": DIRECTOR_SYSTEM_PROMPT},
+                {"role": "user", "content": prompt},
+            ],
+            temperature=temperature,
+            max_tokens=2000,
+            response_format={"type": "json_object"},
+        )
+    except Exception as exc:
+        logger.warning(f"[E7] LLM call failed for {highlight_id}: {exc}")
+        return None
+
+    try:
+        return json.loads(response.content)
+    except json.JSONDecodeError as exc:
+        logger.warning(f"[E7] Invalid JSON for {highlight_id}: {exc}. Raw: {response.content[:300]}")
+        return None
 
 
 async def _direct_highlight(
@@ -177,50 +260,52 @@ async def _direct_highlight(
     transcript_path: str | None,
     retrieved_assets: dict[str, Any],
 ) -> EditDecision | None:
-    """Generate an EditDecision for a single highlight via LLM."""
+    """Generate an EditDecision for a single highlight via LLM.
+
+    Strategy:
+    1. First attempt at temperature 0.75 with full creative prompt.
+    2. If Pydantic validation fails after JSON repair, retry once at
+       temperature 0.3 (more deterministic output).
+    3. If retry also fails, use minimal fallback (no effects, full window).
+    """
+    clip_duration = window.end_sec - window.start_sec
     prompt = _build_director_prompt(highlight, window, transcript_path, retrieved_assets)
+    hid = str(highlight.id)
 
-    logger.info(f"[E7] Director request for highlight {highlight.id} ({highlight.intent.value})")
+    logger.info(f"[E7] Director request for {hid} ({highlight.intent.value})")
 
-    try:
-        response = await openrouter.chat(
-            model=settings.DIRECTOR_MODEL,
-            messages=[
-                {"role": "system", "content": DIRECTOR_SYSTEM_PROMPT},
-                {"role": "user", "content": prompt},
-            ],
-            temperature=0.75,
-            max_tokens=2000,
-            response_format={"type": "json_object"},
-        )
-    except Exception as exc:
-        logger.warning(f"[E7] LLM call failed for highlight {highlight.id}: {exc}")
-        return None
+    decision: EditDecision | None = None
 
-    # Parse JSON response
-    try:
-        raw = json.loads(response.content)
-    except json.JSONDecodeError as exc:
-        logger.warning(f"[E7] Invalid JSON: {exc}. Raw: {response.content[:200]}")
-        return None
+    for attempt, temp in enumerate([0.75, 0.3], start=1):
+        raw = await _call_director_llm(hid, prompt, temperature=temp)
+        if raw is None:
+            continue
 
-    # Inject highlight_id
-    raw["highlight_id"] = highlight.id
+        raw["highlight_id"] = hid
+        raw = _repair_raw(raw, clip_duration)
 
-    # Validate with Pydantic
-    try:
-        decision = EditDecision.model_validate(raw)
-    except Exception as exc:
-        logger.warning(f"[E7] Schema validation failed: {exc}. Raw keys: {list(raw.keys())}")
+        try:
+            decision = EditDecision.model_validate(raw)
+            if attempt > 1:
+                logger.info(f"[E7] Retry attempt {attempt} succeeded for {hid}")
+            break
+        except Exception as exc:
+            logger.warning(
+                f"[E7] Validation failed (attempt {attempt}) for {hid}: {exc} "
+                f"— raw keys: {list(raw.keys())}"
+            )
+
+    if decision is None:
+        logger.warning(f"[E7] All attempts failed for {hid} — using minimal fallback")
         decision = EditDecision(
-            highlight_id=highlight.id,
+            highlight_id=hid,
             title=f"Clip {highlight.intent.value}",
-            trim=Trim(start_sec=0.0, end_sec=window.end_sec - window.start_sec, reason="Fallback trim"),
+            trim=Trim(start_sec=0.0, end_sec=clip_duration, reason="Fallback trim"),
             rationale="Director failed to generate valid plan; using fallback.",
         )
 
     logger.info(
-        f"[E7] Decision for {highlight.id}: '{decision.title}' | "
+        f"[E7] Decision for {hid}: '{decision.title}' | "
         f"{len(decision.zoom_events)} zoom, "
         f"{len(decision.meme_overlays)} memes, "
         f"{len(decision.sfx_cues)} sfx, "

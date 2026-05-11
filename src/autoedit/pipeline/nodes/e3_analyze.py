@@ -72,14 +72,21 @@ async def run(state: PipelineState) -> None:
     # Build parquet table
     table = pa.table({
         "t_sec": [float(t) for t in range(n_seconds)],
+        # Audio
         "audio_rms_db": [a.rms_db for a in audio_signals],
         "audio_loudness_lufs": [a.loudness_lufs for a in audio_signals],
         "audio_pitch_hz": [a.pitch_hz or 0.0 for a in audio_signals],
+        "audio_laughter_prob": [a.laughter_prob for a in audio_signals],
+        # Chat
         "chat_msg_per_sec": [c.msg_per_sec for c in chat_signals],
         "chat_unique_users": [c.unique_users for c in chat_signals],
         "chat_kw_score": [c.keyword_score for c in chat_signals],
+        "chat_emote_score": [c.emote_score for c in chat_signals],
+        "chat_spike_score": [c.spike_score for c in chat_signals],
         "chat_sentiment": [c.sentiment for c in chat_signals],
+        # Transcript
         "transcript_kw_score": [t.keyword_score for t in transcript_signals],
+        # Scenes
         "is_scene_cut": [s.is_cut for s in scene_signals],
     })
 
