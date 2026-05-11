@@ -1,0 +1,49 @@
+# ── Python artifacts ──────────────────────────────────────────────────────────
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+**/*.pyd
+**/.python-version
+**/*.egg-info/
+**/dist/
+**/build/
+
+# ── Virtual environments (host venv — never copy into image) ──────────────────
+.venv/
+venv/
+env/
+
+# ── Data directory (models + DB + VODs + clips — mounted as a volume) ─────────
+data/
+
+# ── Coverage / test artifacts ─────────────────────────────────────────────────
+htmlcov/
+.coverage
+.coverage.*
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ── Editors / OS ──────────────────────────────────────────────────────────────
+.git/
+.gitignore
+.gitattributes
+.idea/
+.vscode/
+*.DS_Store
+Thumbs.db
+
+# ── Secrets — never bake into the image ───────────────────────────────────────
+.env
+*.pem
+*.key
+
+# ── Docs that don't belong in the image ───────────────────────────────────────
+*.md
+LICENSE
+docs/
+htmlcov/
+
+# ── Logs ──────────────────────────────────────────────────────────────────────
+*.log
+logs/

@@ -1,0 +1,76 @@
+# ╔══════════════════════════════════════════════════════════════════════════════╗
+# ║  AutoEdit AI — CPU-only image  (CI / unit tests / no GPU)                   ║
+# ║                                                                              ║
+# ║  Uses PyTorch CPU wheels (much smaller: ~800 MB vs ~4 GB for CUDA).        ║
+# ║  No NVENC, no faster-whisper GPU inference.                                 ║
+# ║  Intended for: pytest in CI, schema migrations, CLI smoke tests.            ║
+# ╚══════════════════════════════════════════════════════════════════════════════╝
+
+FROM python:3.12-slim AS base
+
+ARG DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+      ffmpeg \
+      git \
+      curl \
+      ca-certificates \
+      libsndfile1 \
+      libgomp1 \
+ && rm -rf /var/lib/apt/lists/*
+
+COPY --from=ghcr.io/astral-sh/uv:0.7.8 /uv /usr/local/bin/uv
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    UV_LINK_MODE=copy \
+    UV_PROJECT_ENVIRONMENT=/opt/venv \
+    UV_PYTHON_PREFERENCE=only-managed
+
+WORKDIR /app
+
+# ── builder ────────────────────────────────────────────────────────────────────
+FROM base AS builder
+
+COPY pyproject.toml uv.lock ./
+
+# Override the pytorch-cu128 index with the CPU index so we get the small wheels.
+# uv respects UV_INDEX_URL to override the default PyPI index; for source overrides
+# we patch the uv.lock at build time by using --extra-index-url in pip-style or
+# by providing an override via an env variable.
+#
+# Simpler approach: install everything except torch from uv, then replace torch
+# with the CPU build via pip.
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-dev --no-install-project
+
+# Replace CUDA torch with CPU torch (saves ~3 GB in this image).
+RUN /opt/venv/bin/pip install --no-cache-dir \
+      --index-url https://download.pytorch.org/whl/cpu \
+      torch torchvision torchaudio
+
+# ── runtime ────────────────────────────────────────────────────────────────────
+FROM base AS runtime
+
+COPY --from=builder /opt/venv /opt/venv
+COPY pyproject.toml uv.lock ./
+COPY src/ ./src/
+COPY infra/ ./infra/
+
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-dev
+
+COPY infra/entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+ENV PATH="/opt/venv/bin:$PATH" \
+    DATA_DIR=/app/data \
+    REDIS_URL=redis://redis:6379/0 \
+    QDRANT_URL=http://qdrant:6333
+
+VOLUME ["/app/data"]
+EXPOSE 7880
+
+ENTRYPOINT ["/entrypoint.sh"]
+CMD ["autoedit", "--help"]

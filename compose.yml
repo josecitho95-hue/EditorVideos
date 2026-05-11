@@ -1,16 +1,134 @@
+# ╔══════════════════════════════════════════════════════════════════════════════╗
+# ║  AutoEdit AI — Docker Compose stack                                         ║
+# ║                                                                              ║
+# ║  Services (always on)                                                        ║
+# ║  ──────────────────────                                                      ║
+# ║  redis   : job queue (arq backend)                                           ║
+# ║  qdrant  : vector DB for asset RAG                                           ║
+# ║  gui     : NiceGUI web editor  →  http://localhost:7880                      ║
+# ║  worker  : arq GPU worker (max 1 job at a time)                              ║
+# ║                                                                              ║
+# ║  One-time setup (profile: setup)                                             ║
+# ║  ────────────────────────────────                                            ║
+# ║  download-models  →  docker compose run --rm download-models                ║
+# ║  init-db          →  docker compose run --rm init-db                        ║
+# ║                                                                              ║
+# ║  Quick start                                                                 ║
+# ║  ───────────                                                                 ║
+# ║  1. cp .env.example .env && nano .env    # fill OPENROUTER_API_KEY          ║
+# ║  2. docker compose --profile setup run --rm init-db                         ║
+# ║  3. docker compose --profile setup run --rm download-models  # ~10 GB       ║
+# ║  4. docker compose up -d                                                     ║
+# ║  5. open http://localhost:7880                                               ║
+# ╚══════════════════════════════════════════════════════════════════════════════╝
+
+name: autoedit
+
+# ── Shared app configuration (YAML anchor) ────────────────────────────────────
+x-app-base: &app-base
+  build:
+    context: .
+    dockerfile: Dockerfile
+    target: runtime
+  image: autoedit-ai:latest
+  env_file: .env                # user secrets — copy from .env.example first
+  environment:
+    DATA_DIR: /app/data
+    REDIS_URL: redis://redis:6379/0
+    QDRANT_URL: http://qdrant:6333
+  volumes:
+    - autoedit_data:/app/data   # DB + model weights + VODs + outputs
+  depends_on:
+    redis:
+      condition: service_healthy
+    qdrant:
+      condition: service_healthy
+  restart: unless-stopped
+  # NVIDIA GPU — requires NVIDIA Container Toolkit on the host.
+  # Setup: https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html
+  deploy:
+    resources:
+      reservations:
+        devices:
+          - driver: nvidia
+            count: all
+            capabilities: [gpu]
+
+# ── Services ──────────────────────────────────────────────────────────────────
 services:
+
+  # ── Redis — arq job queue ──────────────────────────────────────────────────
   redis:
     image: redis:7-alpine
-    ports:
-      - "6379:6379"
+    command: redis-server --save 60 1 --loglevel warning
     volumes:
-      - ./data/redis:/data
-    command: redis-server --appendonly yes
+      - redis_data:/data
+    ports:
+      - "6379:6379"             # also reachable from host CLI
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
 
+  # ── Qdrant — vector DB ─────────────────────────────────────────────────────
   qdrant:
-    image: qdrant/qdrant:latest
-    ports:
-      - "6333:6333"
-      - "6334:6334"
+    image: qdrant/qdrant:v1.13.0
     volumes:
-      - ./data/qdrant:/qdrant/storage
+      - qdrant_data:/qdrant/storage
+    ports:
+      - "6333:6333"             # REST
+      - "6334:6334"             # gRPC
+    restart: unless-stopped
+    environment:
+      QDRANT__SERVICE__GRPC_PORT: 6334
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:6333/healthz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+
+  # ── GUI — NiceGUI web editor ───────────────────────────────────────────────
+  gui:
+    <<: *app-base
+    command: autoedit gui --port 7880 --no-browser
+    ports:
+      - "7880:7880"
+
+  # ── Worker — arq GPU background processor ─────────────────────────────────
+  # Processes one job at a time (WorkerSettings.max_jobs = 1).
+  # GPU stages run sequentially: Whisper → CLIP → F5-TTS → NVENC render.
+  worker:
+    <<: *app-base
+    command: autoedit worker start
+
+  # ── download-models ── run once before first use ───────────────────────────
+  # Downloads faster-whisper large-v3 + creates placeholder dirs for CLIP / F5-TTS.
+  # ~10 GB network download on first run; subsequent runs are instant (already cached).
+  #   docker compose --profile setup run --rm download-models
+  download-models:
+    <<: *app-base
+    command: python infra/download_models.py
+    restart: "no"
+    profiles:
+      - setup
+
+  # ── init-db ── run once (or after schema changes) ─────────────────────────
+  #   docker compose --profile setup run --rm init-db
+  init-db:
+    <<: *app-base
+    command: autoedit db init
+    restart: "no"
+    profiles:
+      - setup
+
+# ── Named volumes ──────────────────────────────────────────────────────────────
+volumes:
+  autoedit_data:    # ~10+ GB: DB + model weights + VODs + rendered clips
+    driver: local
+  redis_data:
+    driver: local
+  qdrant_data:
+    driver: local
