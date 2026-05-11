@@ -1,0 +1,90 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+.venv/
+env/
+venv/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Data & models (heavy / generated)
+data/
+!data/.gitkeep
+models/
+!models/.gitkeep
+tmp/
+!tmp/.gitkeep
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Logs
+*.log
+logs/
+
+# Environment
+.env
+
+# Coverage
+.coverage
+htmlcov/
+
+# uv
+uv.lock
+
+# Cache directories
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+
+# Claude / AI assistant local settings
+.claude/
+
+# Temporary extraction directories
+_extract/
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Generated data files
+*.parquet
+*.arrow
+
+# Temporary scripts
+_test_gpu.py
+_tmp_delete_vod.py
+
+# Voice reference and generated narrations (personal data)
+data/voices/
+data/narrations/
+data/vods/
+!data/vods/.gitkeep
