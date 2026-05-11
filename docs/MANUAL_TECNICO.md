@@ -1,6 +1,6 @@
 # AutoEdit AI — Manual Técnico
 
-**Versión:** 1.0  
+**Versión:** 1.1  
 **Fecha:** 2026-05-11  
 **Autor:** Josemiguel Escobedo Checa  
 **Audiencia:** Equipos de desarrollo, arquitectos de software, DevOps y mantenedores del sistema.
@@ -21,6 +21,7 @@
 10. [Observabilidad y Trazabilidad](#10-observabilidad-y-trazabilidad)
 11. [Testing y Calidad](#11-testing-y-calidad)
 12. [Seguridad y Configuración](#12-seguridad-y-configuración)
+13. [Novedades v1.1](#13-novedades-v11)
 
 ---
 
@@ -30,10 +31,13 @@
 
 ### Formatos de Salida
 
-| Formato | Resolución | Aspecto | Destino |
-|---------|------------|---------|---------|
-| YouTube | 1920×1080 | 16:9 | Principal |
-| Shorts / TikTok / Reels | 1080×1920 | 9:16 | Derivados |
+| Formato | Resolución | Aspecto | Layout | Destino |
+|---------|------------|---------|--------|---------|
+| YouTube | 1920×1080 | 16:9 | crop (default) | Principal |
+| TikTok / Reels / Shorts | 1080×1920 | 9:16 | crop o split | Derivados |
+| Square | 1080×1080 | 1:1 | crop | Redes sociales |
+
+El **layout split-screen** divide la pantalla vertical en gameplay arriba (60 %) y primer plano facial abajo (40 %), ambos tomados del mismo video fuente. Esto maximiza el engagement en formatos verticales sin requerir cámara secundaria.
 
 ### Métricas de Diseño
 
@@ -41,9 +45,10 @@
 |---------|----------|
 | Tiempo de procesamiento | ≤ 45 min por hora de VOD |
 | Volumen esperado | 1 video por día |
-| Costo LLM por video | < $0.20 (default) / < $2.00 (calidad) |
+| Costo LLM por video | < $0.20 USD (default) / < $2.00 (calidad) |
 | Infraestructura mensual | $0 (local + free tiers) |
 | Clips objetivo por VOD | 5-15 candidatos finales |
+| Deduplicación post-E7 | IoU ≥ 0.40 suprime clips duplicados |
 
 ---
 
@@ -52,53 +57,53 @@
 ### 2.1 Diagrama de Componentes
 
 ```
-┌──────────────────────────────────────────────────────────────────────┐
-│                          USUARIO                                      │
-│              CLI (Typer)        ◄────►       Dashboard (Gradio)       │
-└────────────────┬─────────────────────────────────────┬────────────────┘
-                 │                                     │
-                 ▼                                     ▼
-┌──────────────────────────────────────────────────────────────────────┐
-│                    APPLICATION LAYER (Python 3.12)                    │
-│                                                                       │
-│  ┌──────────────┐  ┌──────────────┐  ┌────────────────────────────┐  │
-│  │  Pipeline    │  │  GPU         │  │  Cost & Trace Recorder     │  │
-│  │  Orchestrator│◄─┤  Scheduler   │  │  (Langfuse SDK)            │  │
-│  │  (Pydantic   │  │  (1 etapa    │  └────────────────────────────┘  │
-│  │   AI graph)  │  │   GPU/vez)   │                                   │
-│  └──────┬───────┘  └──────────────┘                                   │
-│         │                                                             │
-│         ▼                                                             │
-│  ┌────────────────────────────────────────────────────────────────┐   │
-│  │  Domain Services                                                │   │
-│  │  ┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐       │   │
-│  │  │Ingest  │ │Analyze │ │Score   │ │Triage  │ │Director│       │   │
-│  │  └────────┘ └────────┘ └────────┘ └────────┘ └────────┘       │   │
-│  │  ┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐                  │   │
-│  │  │Retrieve│ │TTS     │ │Render  │ │Publish │                  │   │
-│  │  └────────┘ └────────┘ └────────┘ └────────┘                  │   │
-│  └────────────────────────────────────────────────────────────────┘   │
-│                                                                       │
-└──┬────────────┬─────────────┬──────────────┬─────────────┬────────────┘
-   │            │             │              │             │
-   ▼            ▼             ▼              ▼             ▼
-┌────────┐ ┌─────────┐  ┌─────────┐  ┌────────────┐  ┌──────────┐
-│SQLite  │ │ Qdrant  │  │ Redis   │  │ Filesystem │  │OpenRouter│
-│(estado │ │(vector  │  │(arq job │  │(VODs,clips,│  │(LLMs HTTP│
-│ ops)   │ │  search)│  │ queue)  │  │ assets,    │  │ remoto)  │
-│        │ │ Docker  │  │ Docker  │  │ models)    │  │          │
-└────────┘ └─────────┘  └─────────┘  └────────────┘  └──────────┘
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                              USUARIO                                          │
+│   CLI (Typer)  ◄──►  Dashboard (Gradio)  ◄──►  Editor (NiceGUI)              │
+└────────────────┬─────────────────────────────────────────────────────────────┘
+                 │
+                 ▼
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                        APPLICATION LAYER (Python 3.12)                        │
+│                                                                               │
+│  ┌──────────────┐  ┌──────────────┐  ┌─────────────────────────────────────┐  │
+│  │  Pipeline    │  │  GPU         │  │  Cost & Trace Recorder              │  │
+│  │  Orchestrator│◄─┤  Scheduler   │  │  (Langfuse SDK)                     │  │
+│  │  (Pydantic   │  │  (1 etapa    │  └─────────────────────────────────────┘  │
+│  │   AI graph)  │  │   GPU/vez)   │                                         │  │
+│  └──────┬───────┘  └──────────────┘                                         │  │
+│         │                                                                     │
+│         ▼                                                                     │
+│  ┌────────────────────────────────────────────────────────────────────────┐   │
+│  │  Domain Services                                                        │   │
+│  │  ┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐    │   │
+│  │  │Ingest  │ │Analyze │ │Score   │ │Triage  │ │Director│ │Dedup   │    │   │
+│  │  └────────┘ └────────┘ └────────┘ └────────┘ └────────┘ └────────┘    │   │
+│  │  ┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐               │   │
+│  │  │Retrieve│ │TTS     │ │Render  │ │Split   │ │Publish │               │   │
+│  │  └────────┘ └────────┘ └────────┘ └────────┘ └────────┘               │   │
+│  └────────────────────────────────────────────────────────────────────────┘   │
+│                                                                               │
+└──┬────────────┬─────────────┬──────────────┬─────────────┬────────────┬──────┘
+   │            │             │              │             │            │
+   ▼            ▼             ▼              ▼             ▼            ▼
+┌────────┐ ┌─────────┐  ┌─────────┐  ┌────────────┐  ┌──────────┐  ┌────────┐
+│SQLite  │ │ Qdrant  │  │ Redis   │  │ Filesystem │  │OpenRouter│  │Docker  │
+│(estado │ │(vector  │  │(arq job │  │(VODs,clips,│  │(LLMs HTTP│  │(runtime│
+│ ops)   │ │  search)│  │ queue)  │  │ assets,    │  │ remoto)  │  │ stack) │
+│        │ │ Docker  │  │ Docker  │  │ models)    │  │          │  │        │
+└────────┘ └─────────┘  └─────────┘  └────────────┘  └──────────┘  └────────┘
 ```
 
 ### 2.2 Capas de la Aplicación
 
 | Capa | Responsabilidad | Tecnología |
 |------|-----------------|------------|
-| **Presentación** | Interacción usuario-sistema | Typer (CLI), Gradio (Web) |
+| **Presentación** | Interacción usuario-sistema | Typer (CLI), Gradio (Dashboard), NiceGUI (Editor) |
 | **Orquestación** | Coordinación del pipeline E0-E10 | Pydantic AI, asyncio |
 | **Dominio** | Entidades de negocio tipadas | Pydantic v2 |
-| **Servicios** | Lógica de análisis, scoring, editorial | Python puro |
-| **Infraestructura** | Persistencia, colas, vectores, render | SQLModel, Redis, Qdrant, FFmpeg |
+| **Servicios** | Lógica de análisis, scoring, editorial, deduplicación | Python puro |
+| **Infraestructura** | Persistencia, colas, vectores, render, contenedores | SQLModel, Redis, Qdrant, FFmpeg, Docker |
 
 ---
 
@@ -120,18 +125,20 @@
 | SDK LLM | openai | 1.x | Cliente compatible OpenRouter |
 | Agente editorial | Pydantic AI | 0.0.x | Tipado estructurado de respuestas LLM |
 | CLI | Typer | 0.12+ | Interfaz de línea de comandos |
-| Dashboard | Gradio | 6.10+ | Interfaz web de revisión |
+| Dashboard | Gradio | 6.10+ | Interfaz web de revisión rápida |
+| Editor visual | NiceGUI | 1.4+ | Timeline interactivo con canvas JS |
 | Logging | loguru | 0.7+ | JSON sink + consola |
 | Tracing | langfuse | 2.x | Observabilidad de llamadas LLM |
 | Testing | pytest | 8.x+ | Unit, integración y E2E |
 | Lint/Format | ruff | latest | Reemplazo de black+isort+flake8 |
 | Type check | mypy | 1.x | Modo estricto |
+| Contenedores | Docker + Compose | — | Runtime reproducible con CUDA |
 | Video/Audio | FFmpeg | 7.x+ | Render con NVENC |
 | Descarga VOD | yt-dlp | latest | Descarga de streams Twitch |
 | Chat Twitch | chat-downloader | latest | Extracción de historial de chat |
-| Análisis audio | librosa, pyloudnorm | 0.10+ | RMS, loudness, pitch |
+| Análisis audio | librosa, pyloudnorm | 0.10+ | RMS, loudness, pitch, risa |
 | Detección escenas | PySceneDetect | 0.6+ | Segmentación por contenido |
-| Tracking facial | mediapipe | 0.10+ | Detección de rostro para reframe |
+| Tracking facial | mediapipe | 0.10+ | Detección de rostro para reframe y split |
 | Transcripción | faster-whisper | 1.0+ | large-v3, int8 |
 | Embeddings imagen | open_clip_torch | 3.3+ | ViT-B/32 |
 | TTS | F5-TTS | 1.1.20+ | Voice cloning |
@@ -211,13 +218,14 @@ El pipeline se ejecuta en etapas secuenciales, con cacheo de artefactos y schedu
 | **E0** | Ingest | I/O (red) | Descarga VOD con yt-dlp y chat con chat-downloader |
 | **E1** | Extract | CPU | Extracción de audio WAV y detección de escenas |
 | **E2** | Transcribe | GPU (~3 GB) | Transcripción con faster-whisper + alineación word-level |
-| **E3** | Analyze | CPU | Señales de audio (librosa), chat (densidad), transcripción (keywords) |
+| **E3** | Analyze | CPU | Señales de audio (librosa, risa), chat (densidad), transcripción (keywords) |
 | **E4** | Score | CPU | Fusión de señales y detección de ventanas top-N |
 | **E5** | Triage | LLM (HTTP) | Clasificación de intención por candidato (Gemini Flash) |
 | **E6** | Retrieve | GPU (~2 GB) | Búsqueda semántica de memes (CLIP) y SFX (CLAP) en Qdrant |
 | **E7** | Direct | LLM (HTTP) | Agente editorial emite `EditDecision` tipado (DeepSeek V3) |
+| **E7.5** | Dedup | CPU | IoU NMS sobre rangos renderizados; suprime duplicados (IoU ≥ 0.40) |
 | **E8** | TTS | GPU (~4 GB) | Generación de narraciones con voz clonada (F5-TTS) |
-| **E9** | Render | GPU (NVENC) | Composición final con FFmpeg: trim, overlays, subs, zooms |
+| **E9** | Render | GPU (NVENC) | Composición final con FFmpeg: trim, overlays, subs, zooms, split |
 | **E10** | Finalize | CPU/IO | Escritura de metadatos, limpieza opcional |
 
 ### 5.2 Secuencia GPU Crítica
@@ -266,17 +274,18 @@ Contiene las entidades centrales del negocio como Pydantic models inmutables:
 
 ### 6.4 Analysis (`src/autoedit/analysis/`)
 
-- **`audio.py`**: Cálculo de RMS, loudness LUFS y pitch con librosa/pyloudnorm.
+- **`audio.py`**: Cálculo de RMS, loudness LUFS, pitch y detección de risa con librosa/pyloudnorm.
 - **`chat.py`**: Densidad de mensajes, usuarios únicos, puntuación de keywords (emotes), sentimiento.
 - **`scenes.py`**: Facade sobre PySceneDetect (`ContentDetector`) para obtener cortes de escena.
 - **`transcribe.py` / `transcribe_local.py` / `transcribe_remote.py`**: Capa de transcripción con faster-whisper (local) o OpenRouter (remoto).
 - **`transcript_signals.py`**: Detección de picos de keywords y sentimiento en la transcripción.
-- **`vision.py`**: Análisis visual opcional para contexto de escenas.
+- **`vision.py`**: Análisis visual con MediaPipe para detección facial (usado por reframe y split-screen).
 
 ### 6.5 Scoring (`src/autoedit/scoring/`)
 
 - **`fusion.py`**: Normaliza señales de audio, chat, transcripción y escenas a [0,1], aplica pesos configurables y genera una serie de scores por segundo.
 - **`windowing.py`**: Detección de picos, aplicación de NMS (Non-Maximum Suppression) temporal y extracción de ventanas top-N respetando duración mínima/máxima.
+- **`dedup.py`**: Deduplicación post-E7 basada en IoU (Intersection-over-Union) sobre los rangos de tiempo absolutos renderizados. Umbral por defecto: 0.40. Ordena por confianza de triage descendente y aplica NMS para evitar clips duplicados.
 
 ### 6.6 Editorial (`src/autoedit/editorial/`)
 
@@ -300,20 +309,22 @@ Contiene las entidades centrales del negocio como Pydantic models inmutables:
 
 - **`ffmpeg_runner.py`**: Invoca FFmpeg como subproceso, parsea progreso y maneja errores.
 - **`compositor.py`**: Traduce `EditDecision` en un comando FFmpeg completo con `filter_complex`.
-- **`reframe.py`**: Adaptación de aspecto 16:9 → 9:16 con seguimiento facial (MediaPipe) + suavizado Kalman.
+- **`reframe.py`**: Adaptación de aspecto 16:9 → 9:16 / 1:1 con seguimiento facial (MediaPipe) + suavizado Kalman. Soporta layouts:
+  - **`crop`** (default): recorte centrado o con seguimiento facial.
+  - **`split`**: pantalla dividida — gameplay arriba (60 %) + primer plano facial abajo (40 %).
 - **`subtitles.py`**: Genera subtítulos ASS con efecto karaoke word-level a partir de la alineación WhisperX.
 - **`filters/`**: Helpers de filter_complex para overlays, zooms y mezcla de audio.
 
 ### 6.10 CLI (`src/autoedit/cli/`)
 
-- **`main.py`**: Punto de entrada Typer. Agrupa comandos por dominio.
+- **`main.py`**: Punto de entrada Typer. Agrupa comandos por dominio. Incluye `dashboard` (Gradio) y `gui` (NiceGUI).
 - **`commands/job.py`**: `add`, `local`, `list`, `show`, `direct`.
 - **`commands/assets.py`**: `ingest`, `list`, `stats`, `search`.
 - **`commands/voice.py`**: `register`, `list`, `delete`, `test`.
 - **`commands/doctor.py`**: Health check de todo el stack.
 - **`commands/db.py`**: `migrate`, `reset`, `backup`.
 - **`commands/worker.py`**: Gestión del worker arq.
-- **`commands/render.py`**: Render manual de highlights.
+- **`commands/render.py`**: Render manual de highlights. Soporta `--format` (`youtube`, `tiktok`, `shorts`, `square`) y `--layout` (`crop`, `split`).
 
 ### 6.11 Dashboard (`src/autoedit/dashboard/`)
 
@@ -322,12 +333,32 @@ Contiene las entidades centrales del negocio como Pydantic models inmutables:
   - **Clips Viewer**: Previsualización de clips, rating 1-5 estrellas, notas, re-render.
   - **Re-direct**: Re-ejecución de E6-E8 sin reprocesar E1-E5.
 
-### 6.12 Storage (`src/autoedit/storage/`)
+### 6.12 Editor Visual — NiceGUI (`src/autoedit/gui/`)
+
+Nueva interfaz web full-featured reemplazando/proporcionando una alternativa más potente al Dashboard Gradio.
+
+- **`app.py`**: Entry point de NiceGUI. Registra rutas FastAPI para comunicación JS↔Python (`/api/gui/timeline/update`, `/api/gui/timeline/select`). Sirve archivos estáticos.
+- **`data.py`**: Capa de acceso a datos para la UI — wrappers sobre repositories.
+- **`pages/jobs.py`**: Grid de tarjetas de jobs con badges de estado, iconos por etapa, y navegación a timeline/clips.
+- **`pages/timeline.py`**: Editor de timeline interactivo con:
+  - **Sidebar**: Lista de highlights con intención, confianza y ventana temporal.
+  - **Canvas JS**: Timeline basado en canvas con tracks de Trim, Zooms, Memes, SFX y Narración.
+  - **Panel de propiedades**: Formularios dinámicos según el elemento seleccionado (intensidad de zoom, texto de narración, etc.).
+  - **Botones de acción**: Guardar, Re-render, TikTok, Split.
+  - **Comunicación bidireccional**: JS envía actualizaciones vía POST a FastAPI; Python inyecta datos con `ui.run_javascript`.
+- **`pages/clips.py`**: Galería de clips renderizados con estadísticas (total, en disco, valorados), ratings con estrellas, y acciones (abrir carpeta, copiar ruta).
+- **`static/timeline.js`**: Motor de timeline en canvas puro:
+  - Tracks visuales con colores distintivos.
+  - Drag & drop de handles y bloques.
+  - Zoom temporal (pixels per second).
+  - Selección y envío de estado a Python.
+
+### 6.13 Storage (`src/autoedit/storage/`)
 
 - **`db.py`**: Engine SQLModel, sesiones y migraciones automáticas.
 - **`repositories/`**: Patrón Repository para cada agregado (jobs, vods, highlights, clips, assets, etc.).
 
-### 6.13 LLM (`src/autoedit/llm/`)
+### 6.14 LLM (`src/autoedit/llm/`)
 
 - **`openrouter.py`**: Cliente HTTP único async con base_url apuntando a OpenRouter.
 - **`pricing.py`**: Tabla de precios por modelo para estimación de costos.
@@ -401,14 +432,33 @@ Los prompts se mantienen en archivos Markdown versionados (`src/autoedit/editori
 El renderizado es un único paso de FFmpeg optimizado para minimizar pérdida de calidad:
 
 1. **Trim**: `-ss start -to end` sobre el source MP4.
-2. **Reframe**: `crop` o `zoompan` dinámico según formato de salida.
+2. **Reframe / Split**:
+   - **`crop`**: Recorte centrado o con seguimiento facial.
+   - **`split`**: Composición split-screen para 9:16 — gameplay arriba (60 %) + cara abajo (40 %).
 3. **Overlays**: Memes e imágenes con `overlay` filter y `enable='between(t,...)'`.
 4. **Zooms**: `zoompan` para punch-ins y seguimiento facial.
 5. **Subtítulos**: Burn-in ASS con estilo karaoke (`\k` tags).
 6. **Audio mix**: Mezcla de audio original (con ducking durante narración), SFX y narración TTS.
 7. **Encode**: NVENC H.264/HEVC/AV1 según configuración.
 
-### 9.2 Optimizaciones
+### 9.2 Layout Split-Screen
+
+El layout split-screen está diseñado para maximizar el engagement en TikTok/Reels/Shorts sin requerir cámara secundaria:
+
+```
+┌─────────────────┐  ▲ top_h  (60 % de 1080×1920 = 1152 px)
+│   GAMEPLAY      │  │  Recorte AR-match del source, centrado
+│   (top 60 %)    │  │
+└─────────────────┘  ▼
+┌─────────────────┐  ▲ bot_h  (40 % de 1080×1920 = 768 px)
+│  FACE CLOSE-UP  │  │  40 % de la altura del source alrededor de la cara detectada
+│  (bottom 40 %)  │  │
+└─────────────────┘  ▼
+```
+
+La posición facial se obtiene mediante MediaPipe Face Detection, agregada sobre múltiples frames del clip, y suavizada. Si no se detecta rostro, cae al centro vertical del frame.
+
+### 9.3 Optimizaciones
 
 - **NVENC preset p4**: Balance calidad/velocidad para RTX 4070 Mobile.
 - **CQ 22**: Calidad visual objetivo.
@@ -483,8 +533,52 @@ Toda la configuración sensible se carga desde `.env` (nunca commiteado):
 
 - Mono-tenant: sin autenticación ni autorización.
 - Dashboard Gradio expuesto solo en `localhost` (`share=False`).
+- Editor NiceGUI expuesto solo en `localhost` (`share=False`).
 - No hay endpoints públicos; todo el procesamiento es local-first.
 
 ---
 
-*Fin del Manual Técnico.*
+## 13. Novedades v1.1
+
+### 13.1 Editor Visual NiceGUI
+
+Nueva interfaz web de alto rendimiento basada en NiceGUI + FastAPI + Canvas JS:
+
+- **Timeline interactivo** con drag & drop de efectos, handles de trim, y selección visual.
+- **Panel de propiedades dinámico** que cambia según el tipo de efecto seleccionado.
+- **Comunicación bidireccional** JS↔Python vía endpoints FastAPI.
+- **Persistencia** de cambios en SQLite con un solo clic en "Guardar".
+- **Re-renderizado directo** desde el editor sin volver a la CLI.
+
+### 13.2 Layout Split-Screen
+
+Nuevo modo de renderizado para formatos verticales:
+
+- **Gameplay arriba (60 %)**: Recorte centrado del source manteniendo relación de aspecto.
+- **Cara abajo (40 %)**: Primer plano dinámico basado en detección facial MediaPipe.
+- Ambas secciones provienen del **mismo video fuente**, por lo que el audio siempre está sincronizado.
+
+### 13.3 Deduplicación Post-Editorial (E7.5)
+
+Nueva etapa entre Director y TTS que evita renderizar clips duplicados:
+
+- Calcula el rango de tiempo absoluto renderizado (`window_offset + trim`).
+- Ordena por confianza de triage descendente.
+- Aplica NMS con umbral IoU = 0.40.
+- Reduce significativamente el tiempo y costo de render innecesario.
+
+### 13.4 Soporte Docker Completo
+
+- **Dockerfile multi-stage** basado en `nvidia/cuda:12.8.0-cudnn-runtime-ubuntu24.04`.
+- **Docker Compose stack** con servicios: Redis, Qdrant, GUI (NiceGUI), Worker (arq).
+- **Perfiles de setup** para descarga de modelos e inicialización de base de datos.
+- Requiere NVIDIA Container Toolkit en el host.
+
+### 13.5 Señales de Audio Mejoradas
+
+- Detección de **risa** en el canal de audio (probabilidad por segundo).
+- Señales de **chat** enriquecidas con análisis de emotes y sentimiento.
+
+---
+
+*Fin del Manual Técnico v1.1.*

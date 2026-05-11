@@ -84,7 +84,8 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev
 
 COPY infra/entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
+# Strip Windows CRLF line endings (file may be created on Windows) and make executable.
+RUN sed -i 's/\r//' /entrypoint.sh && chmod +x /entrypoint.sh
 
 # Make venv binaries (autoedit, ffmpeg wrappers, etc.) available without prefix.
 ENV PATH="/opt/venv/bin:$PATH"

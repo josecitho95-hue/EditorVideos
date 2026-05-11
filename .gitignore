@@ -88,3 +88,12 @@ data/voices/
 data/narrations/
 data/vods/
 !data/vods/.gitkeep
+
+# Docker Compose local overrides
+compose.override.yml
+
+# NiceGUI local storage
+.nicegui/
+
+# Entrypoint backup copies
+*.sh.bak

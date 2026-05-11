@@ -1,6 +1,6 @@
 # AutoEdit AI — Manual de Usuario
 
-**Versión:** 1.0  
+**Versión:** 1.1  
 **Fecha:** 2026-05-11  
 **Autor:** Josemiguel Escobedo Checa  
 **Audiencia:** Usuario final del sistema (creador de contenido).
@@ -16,11 +16,14 @@
 5. [Procesar Videos Locales](#5-procesar-videos-locales)
 6. [Gestión de Assets (Memes y SFX)](#6-gestión-de-assets-memes-y-sfx)
 7. [Gestión de Perfiles de Voz](#7-gestión-de-perfiles-de-voz)
-8. [Dashboard Web](#8-dashboard-web)
-9. [Revisión y Rating de Clips](#9-revisión-y-rating-de-clips)
-10. [Re-renderizado y Re-dirección](#10-re-renderizado-y-re-dirección)
-11. [Comandos de Administración](#11-comandos-de-administración)
-12. [Preguntas Frecuentes (FAQ)](#12-preguntas-frecuentes-faq)
+8. [Editor Visual — NiceGUI](#8-editor-visual--nicegui)
+9. [Dashboard Gradio](#9-dashboard-gradio)
+10. [Revisión y Rating de Clips](#10-revisión-y-rating-de-clips)
+11. [Re-renderizado y Re-dirección](#11-re-renderizado-y-re-dirección)
+12. [Formatos de Salida y Layouts](#12-formatos-de-salida-y-layouts)
+13. [Comandos de Administración](#13-comandos-de-administración)
+14. [Preguntas Frecuentes (FAQ)](#14-preguntas-frecuentes-faq)
+15. [Novedades v1.1](#15-novedades-v11)
 
 ---
 
@@ -39,13 +42,24 @@
    - Memes y SFX sincronizados.
    - Narración con **tu propia voz clonada**.
 5. **Renderiza** el video final en alta calidad con aceleración NVIDIA.
+6. **Deduplica** clips superpuestos para no generar contenido repetido.
 
 ### Formatos de Salida
 
-| Plataforma | Formato | Resolución |
-|------------|---------|------------|
-| YouTube | Horizontal | 1920×1080 (16:9) |
-| TikTok / Reels / Shorts | Vertical | 1080×1920 (9:16) |
+| Plataforma | Formato | Resolución | Layout |
+|------------|---------|------------|--------|
+| YouTube | Horizontal | 1920×1080 (16:9) | crop (default) |
+| TikTok / Reels / Shorts | Vertical | 1080×1920 (9:16) | crop o split |
+| Instagram / Twitter | Cuadrado | 1080×1080 (1:1) | crop |
+
+### Layout Split-Screen
+
+Diseñado especialmente para TikTok/Reels/Shorts, el layout **split** divide la pantalla vertical en dos secciones usando **el mismo video fuente**:
+
+- **Arriba (60 %)**: Gameplay con recorte centrado.
+- **Abajo (40 %)**: Primer plano de tu cara, detectada automáticamente.
+
+Esto mantiene el audio perfectamente sincronizado y no requiere cámara secundaria.
 
 ---
 
@@ -62,11 +76,13 @@ El uso típico del sistema sigue este flujo:
         ↓
 4. El sistema procesa automáticamente (15-45 min dependiendo de la duración)
         ↓
-5. Abres el Dashboard: autoedit dashboard
+5. Abres el Editor: autoedit gui
         ↓
-6. Revisas los clips generados, les das rating y descargas los mejores
+6. Revisas el timeline, ajustas efectos si lo deseas, y guardas
         ↓
-7. Subes a tus redes sociales
+7. Renderizas clips en YouTube y/o TikTok
+        ↓
+8. Subes a tus redes sociales
 ```
 
 ---
@@ -96,6 +112,16 @@ uv run autoedit ping
 ```
 
 Verifica que la conexión con los servidores de IA funciona correctamente.
+
+### 3.4 Interfaces Web
+
+```bash
+# Editor visual completo (NiceGUI) — recomendado
+uv run autoedit gui
+
+# Dashboard ligero (Gradio) — alternativa
+uv run autoedit dashboard
+```
 
 ---
 
@@ -262,31 +288,92 @@ uv run autoedit voice delete me_v1
 
 ---
 
-## 8. Dashboard Web
+## 8. Editor Visual — NiceGUI
 
-El Dashboard es una interfaz web para revisar clips sin usar la terminal.
+El **Editor NiceGUI** es la interfaz principal recomendada para revisar y editar clips. Ofrece un timeline interactivo con control total sobre cada efecto.
 
-### 8.1 Lanzar el Dashboard
+### 8.1 Lanzar el Editor
 
 ```bash
-uv run autoedit dashboard
+uv run autoedit gui
 ```
 
-Se abrirá automáticamente tu navegador en [http://localhost:7860](http://localhost:7860).
+Se abrirá automáticamente tu navegador en [http://localhost:7880](http://localhost:7880).
 
 Para cambiar de puerto:
 
 ```bash
-uv run autoedit dashboard --port 7861
+uv run autoedit gui --port 7881
 ```
 
 Para no abrir el navegador automáticamente:
 
 ```bash
-uv run autoedit dashboard --no-browser
+uv run autoedit gui --no-browser
 ```
 
-### 8.2 Tabs del Dashboard
+### 8.2 Páginas del Editor
+
+#### /jobs — Grid de Trabajos
+
+- Visualiza todos tus jobs en tarjetas con color de estado.
+- Cada tarjeta muestra: ID, estado, etapa actual, fecha de creación y URL del VOD.
+- Haz clic en **"Ver Timeline"** para editar un job.
+- Haz clic en **"Clips"** para ver los clips renderizados.
+
+#### /timeline/{job_id} — Editor de Timeline
+
+Esta es la página más potente del sistema. Permite editar visualmente las decisiones editoriales generadas por la IA.
+
+**Sidebar izquierdo — Lista de Highlights:**
+- Cada highlight muestra su intención (fail, win, rage, etc.) con color distintivo.
+- Muestra confianza del triage, rango de tiempo y título.
+- Haz clic en un highlight para cargar su timeline.
+
+**Área principal — Timeline Canvas:**
+- **Track Trim**: Arrastra los handles de inicio/fin para ajustar el corte del clip.
+- **Track Zooms**: Bloques verdes representando zooms dinámicos. Arrastra para mover o redimensionar.
+- **Track Memes**: Bloques rosas con memes superpuestos.
+- **Track SFX**: Pines naranjas indicando efectos de sonido.
+- **Track Narración**: Bloques púrpuras con el texto de narración.
+
+**Panel de Propiedades:**
+- Aparece al hacer clic en cualquier elemento del timeline.
+- Permite editar valores numéricos (intensidad de zoom, volumen de SFX, etc.).
+- Permite editar texto de narración.
+
+**Botones de acción:**
+- **Guardar**: Persiste los cambios en la base de datos.
+- **Re-render**: Genera el clip MP4 con los cambios actuales (formato YouTube).
+- **TikTok**: Genera el clip en formato vertical 9:16.
+- **Split**: Genera el clip en formato split-screen (gameplay + cara).
+
+> **Nota:** El timeline utiliza un canvas interactivo en JavaScript. Si aparece en blanco, recarga la página con Ctrl+F5.
+
+#### /clips/{job_id} — Galería de Clips
+
+- Muestra todos los clips renderizados para un job.
+- **Stats bar**: Total, en disco, valorados.
+- Cada tarjeta de clip muestra: duración, resolución, fecha de renderizado, rating con estrellas.
+- **Acciones**:
+  - **Abrir carpeta**: Abre el explorador de archivos en la carpeta del clip.
+  - **Copiar ruta**: Copia la ruta del archivo al portapapeles.
+
+---
+
+## 9. Dashboard Gradio
+
+El Dashboard Gradio es una interfaz más ligera y sencilla, útil para revisiones rápidas.
+
+### 9.1 Lanzar el Dashboard
+
+```bash
+uv run autoedit dashboard
+```
+
+Abre automáticamente [http://localhost:7860](http://localhost:7860).
+
+### 9.2 Tabs del Dashboard
 
 | Tab | Función |
 |-----|---------|
@@ -296,9 +383,16 @@ uv run autoedit dashboard --no-browser
 
 ---
 
-## 9. Revisión y Rating de Clips
+## 10. Revisión y Rating de Clips
 
-### 9.1 Desde el Dashboard
+### 10.1 Desde el Editor NiceGUI
+
+1. Ve a **/clips/{job_id}**.
+2. Revisa las tarjetas de clips con sus metadatos.
+3. Los clips renderizados muestran una badge verde "En disco".
+4. El rating aparece como estrellas ★★★☆☆.
+
+### 10.2 Desde el Dashboard Gradio
 
 1. Ve al tab **🎞️ Clips Viewer**.
 2. Selecciona el **Job** de la lista desplegable.
@@ -309,7 +403,7 @@ uv run autoedit dashboard --no-browser
 7. Agrega notas si deseas (ej. "Mejorar timing del zoom").
 8. Guarda con **Save rating**.
 
-### 9.2 Desde la Terminal
+### 10.3 Desde la Terminal
 
 Los clips renderizados se guardan en:
 
@@ -317,13 +411,11 @@ Los clips renderizados se guardan en:
 data/vods/{vod_id}/clips/{clip_id}.mp4
 ```
 
-Puedes listar los clips de un job con SQL directo o buscando en el directorio.
-
 ---
 
-## 10. Re-renderizado y Re-dirección
+## 11. Re-renderizado y Re-dirección
 
-### 10.1 ¿Cuándo Re-direccionar?
+### 11.1 ¿Cuándo Re-direccionar?
 
 Si no te gustan las decisiones editoriales (memes elegidos, narración, zooms) pero el análisis base es bueno, puedes regenerar solo la parte editorial sin reprocesar horas de transcripción.
 
@@ -334,22 +426,73 @@ uv run autoedit job direct <JOB_ID>
 **Opciones:**
 - `--skip-tts`: Omite la regeneración de narraciones (más rápido).
 
-### 10.2 Re-renderizar un Clip Específico
+### 11.2 Re-renderizar un Clip Específico
 
-Desde el Dashboard, selecciona un clip y haz clic en **Re-render this clip**.
+Desde el Editor NiceGUI, selecciona un highlight en el timeline y haz clic en **Re-render**, **TikTok** o **Split**.
 
 Desde la terminal:
 
 ```bash
+# YouTube (16:9)
 uv run autoedit render edit --job-id <JOB_ID> --format youtube
+
+# TikTok / Shorts (9:16)
 uv run autoedit render edit --job-id <JOB_ID> --format tiktok
+
+# Con layout split-screen
+uv run autoedit render edit --job-id <JOB_ID> --format tiktok --layout split
+
+# Cuadrado (1:1)
+uv run autoedit render edit --job-id <JOB_ID> --format square
 ```
 
 ---
 
-## 11. Comandos de Administración
+## 12. Formatos de Salida y Layouts
 
-### 11.1 Gestión de la Base de Datos
+### 12.1 Formatos Disponibles
+
+| Formato | Resolución | Uso recomendado |
+|---------|------------|-----------------|
+| `youtube` | 1920×1080 | YouTube principal |
+| `tiktok` / `shorts` | 1080×1920 | TikTok, Reels, Shorts |
+| `square` | 1080×1080 | Instagram feed, Twitter |
+
+### 12.2 Layouts
+
+#### Crop (default)
+
+Recorta el video original para adaptarlo al formato de salida. Puede ser:
+- **Centrado**: recorte simple al centro del frame.
+- **Smart crop**: sigue la posición de tu cara usando MediaPipe (recomendado para formatos verticales).
+
+#### Split (solo formatos verticales)
+
+Divide la pantalla en dos secciones usando el **mismo video fuente**:
+
+```
+┌─────────────────┐
+│   GAMEPLAY      │  60 % de la altura
+│   (top)         │
+├─────────────────┤
+│  FACE CLOSE-UP  │  40 % de la altura
+│  (bottom)       │
+└─────────────────┘
+```
+
+- **Gameplay (arriba)**: Recorte centrado del source.
+- **Cara (abajo)**: Primer plano dinámico basado en detección facial.
+- Audio siempre sincronizado porque ambas secciones provienen del mismo archivo.
+
+**Cuándo usar split:**
+- Streams de gaming donde quieres mostrar tu reacción facial junto al gameplay.
+- Formatos verticales donde el gameplay solo ocuparía una franja pequeña.
+
+---
+
+## 13. Comandos de Administración
+
+### 13.1 Gestión de la Base de Datos
 
 ```bash
 # Crear/actualizar tablas
@@ -362,7 +505,7 @@ uv run autoedit db reset
 uv run autoedit db backup
 ```
 
-### 11.2 Listar Trabajos
+### 13.2 Listar Trabajos
 
 ```bash
 # Todos los jobs
@@ -372,13 +515,13 @@ uv run autoedit job list
 uv run autoedit job list --status failed
 ```
 
-### 11.3 Ver Detalle de un Job
+### 13.3 Ver Detalle de un Job
 
 ```bash
 uv run autoedit job show <JOB_ID>
 ```
 
-### 11.4 Worker en Segundo Plano
+### 13.4 Worker en Segundo Plano
 
 ```bash
 # Iniciar worker para procesar jobs encolados
@@ -387,7 +530,7 @@ make worker
 
 ---
 
-## 12. Preguntas Frecuentes (FAQ)
+## 14. Preguntas Frecuentes (FAQ)
 
 ### ¿Cuánto tarda en procesar un stream?
 
@@ -417,7 +560,7 @@ Cada clip es un archivo `.mp4` listo para subir.
 
 ### ¿Puedo editar manualmente los clips después?
 
-Sí. Los clips son archivos MP4 estándar. Puedes abrirlos en DaVinci Resolve, Premiere, CapCut o cualquier editor.
+Sí. Los clips son archivos MP4 estándar. Puedes abrirlos en DaVinci Resolve, Premiere, CapCut o cualquier editor. Además, el **Editor NiceGUI** te permite ajustar trim, zooms, memes, SFX y narración antes de renderizar.
 
 ### ¿Qué pasa si se interrumpe el proceso?
 
@@ -462,6 +605,65 @@ Agrega más assets a tu catálogo:
 
 Cuanto más completo sea tu catálogo, mejores serán las coincidencias semánticas.
 
+### ¿Por qué algunos clips se omiten después del Director?
+
+El sistema aplica **deduplicación** automática post-E7. Si dos clips cubren el mismo momento del VOD con un solapamiento mayor al 40 % (IoU ≥ 0.40), solo se conserva el de mayor confianza. Esto evita contenido repetido.
+
+### ¿Qué diferencia hay entre el Editor (NiceGUI) y el Dashboard (Gradio)?
+
+| Característica | Editor NiceGUI | Dashboard Gradio |
+|----------------|----------------|------------------|
+| Timeline interactivo | ✅ Canvas JS con drag & drop | ❌ No |
+| Edición de efectos | ✅ Zooms, memes, SFX, narración | ❌ Solo re-render completo |
+| Galería de clips | ✅ Con stats y acciones | ✅ Básica |
+| Grid de jobs | ✅ Tarjetas visuales | ✅ Tabla simple |
+| Velocidad | ✅ Más rápido (FastAPI) | ⚠️ Más lento (Gradio) |
+| Recomendado para | Edición detallada | Revisión rápida |
+
 ---
 
-*Fin del Manual de Usuario.*
+## 15. Novedades v1.1
+
+### 15.1 Editor Visual NiceGUI
+
+La v1.1 introduce un editor web completo basado en NiceGUI:
+
+- **Timeline interactivo** con canvas JavaScript.
+- **Drag & drop** de efectos y handles de trim.
+- **Panel de propiedades** dinámico según selección.
+- **Persistencia** de cambios con un clic en "Guardar".
+- **Re-renderizado directo** desde la interfaz.
+
+Comando: `autoedit gui` (puerto 7880).
+
+### 15.2 Layout Split-Screen
+
+Nuevo modo de renderizado para formatos verticales:
+
+- **Gameplay arriba (60 %)** + **cara abajo (40 %)**.
+- Ambas secciones del **mismo video fuente** — audio siempre sincronizado.
+- Sin necesidad de cámara secundaria.
+
+Comando: `autoedit render edit --layout split --format tiktok`.
+
+### 15.3 Deduplicación Automática
+
+El sistema ahora evita generar clips duplicados automáticamente:
+
+- Compara solapamiento temporal entre clips candidatos.
+- Umbral: IoU ≥ 0.40.
+- Conserva el clip de mayor confianza de triage.
+
+### 15.4 Soporte Docker
+
+Ahora puedes ejecutar todo el stack con Docker Compose:
+
+```bash
+docker compose up -d
+```
+
+Incluye: Redis, Qdrant, GUI (NiceGUI) y Worker GPU.
+
+---
+
+*Fin del Manual de Usuario v1.1.*

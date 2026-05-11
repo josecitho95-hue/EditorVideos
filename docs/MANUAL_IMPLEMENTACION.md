@@ -1,6 +1,6 @@
 # AutoEdit AI — Manual de Implementación
 
-**Versión:** 1.0  
+**Versión:** 1.1  
 **Fecha:** 2026-05-11  
 **Autor:** Josemiguel Escobedo Checa  
 **Audiencia:** Ingenieros de deployment, DevOps y el propio usuario implementador.
@@ -11,16 +11,18 @@
 
 1. [Requisitos del Sistema](#1-requisitos-del-sistema)
 2. [Preparación del Entorno](#2-preparación-del-entorno)
-3. [Instalación Paso a Paso](#3-instalación-paso-a-paso)
-4. [Configuración de Variables de Entorno](#4-configuración-de-variables-de-entorno)
-5. [Descarga de Modelos de ML](#5-descarga-de-modelos-de-ml)
-6. [Inicialización de Servicios (Docker)](#6-inicialización-de-servicios-docker)
-7. [Configuración de Voz (TTS)](#7-configuración-de-voz-tts)
-8. [Ingesta de Assets Iniciales](#8-ingesta-de-assets-iniciales)
-9. [Verificación del Sistema](#9-verificación-del-sistema)
-10. [Puesta en Marcha](#10-puesta-en-marcha)
-11. [Troubleshooting](#11-troubleshooting)
-12. [Mantenimiento y Actualización](#12-mantenimiento-y-actualización)
+3. [Instalación Paso a Paso (Local)](#3-instalación-paso-a-paso-local)
+4. [Instalación Paso a Paso (Docker)](#4-instalación-paso-a-paso-docker)
+5. [Configuración de Variables de Entorno](#5-configuración-de-variables-de-entorno)
+6. [Descarga de Modelos de ML](#6-descarga-de-modelos-de-ml)
+7. [Inicialización de Servicios](#7-inicialización-de-servicios)
+8. [Configuración de Voz (TTS)](#8-configuración-de-voz-tts)
+9. [Ingesta de Assets Iniciales](#9-ingesta-de-assets-iniciales)
+10. [Verificación del Sistema](#10-verificación-del-sistema)
+11. [Puesta en Marcha](#11-puesta-en-marcha)
+12. [Troubleshooting](#12-troubleshooting)
+13. [Mantenimiento y Actualización](#13-mantenimiento-y-actualización)
+14. [Novedades v1.1](#14-novedades-v11)
 
 ---
 
@@ -36,7 +38,7 @@
 | Almacenamiento | 256 GB SSD | 500 GB+ NVMe |
 | Conexión | 50 Mbps | 100 Mbps+ estable |
 
-### 1.2 Software Base
+### 1.2 Software Base (Local)
 
 | Componente | Versión | Notas |
 |------------|---------|-------|
@@ -49,7 +51,16 @@
 | CUDA Toolkit | 12.x | Compatible con PyTorch cu128 |
 | FFmpeg | 7.x+ | Compilado con soporte NVENC |
 
-### 1.3 Verificación Previa de FFmpeg
+### 1.3 Software Base (Docker)
+
+| Componente | Versión | Notas |
+|------------|---------|-------|
+| Docker Engine | 24.x+ | Con BuildKit habilitado |
+| Docker Compose | 2.x+ | Soporte para perfiles (`--profile`) |
+| NVIDIA Container Toolkit | 1.14+ | Para exponer GPU dentro de contenedores |
+| NVIDIA Driver | ≥ 555.x | En el host |
+
+### 1.4 Verificación Previa de FFmpeg
 
 ```bash
 ffmpeg -hide_banner -encoders | grep nvenc
@@ -60,7 +71,7 @@ ffmpeg -hide_banner -encoders | grep nvenc
 
 ## 2. Preparación del Entorno
 
-### 2.1 Instalar WSL2 y Ubuntu 22.04
+### 2.1 Instalar WSL2 y Ubuntu 22.04 (solo local)
 
 ```powershell
 # En PowerShell como Administrador
@@ -87,6 +98,10 @@ nvidia-smi
 2. En Settings → General, habilitar **"Use the WSL 2 based engine"**.
 3. En Settings → Resources → WSL Integration, habilitar Ubuntu-22.04.
 
+### 2.4 Instalar NVIDIA Container Toolkit (solo Docker)
+
+Sigue la guía oficial: [docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html)
+
 Verificar:
 
 ```bash
@@ -95,13 +110,13 @@ docker run --rm --gpus all nvidia/cuda:12.0-base nvidia-smi
 
 ---
 
-## 3. Instalación Paso a Paso
+## 3. Instalación Paso a Paso (Local)
 
 ### 3.1 Clonar el Repositorio
 
 ```bash
 git clone https://github.com/josecitho95-hue/EditorVideos.git
- cd EditorVideos
+cd EditorVideos
 ```
 
 ### 3.2 Instalar `uv` (Gestor de Paquetes Python)
@@ -124,7 +139,7 @@ uv --version
 uv sync --extra dev
 ```
 
-Esto instalará todas las dependencias del proyecto incluyendo las de desarrollo (testing, linting).
+Esto instalará todas las dependencias del proyecto incluyendo las de desarrollo (testing, linting) y **NiceGUI**.
 
 ### 3.4 Activar el Entorno (Opcional)
 
@@ -135,9 +150,56 @@ source .venv/bin/activate
 
 ---
 
-## 4. Configuración de Variables de Entorno
+## 4. Instalación Paso a Paso (Docker)
 
-### 4.1 Crear el archivo `.env`
+### 4.1 Clonar y Configurar
+
+```bash
+git clone https://github.com/josecitho95-hue/EditorVideos.git
+cd EditorVideos
+cp .env.example .env
+# Editar .env y establecer OPENROUTER_API_KEY
+```
+
+### 4.2 Construir la Imagen
+
+```bash
+docker compose build
+```
+
+La imagen se construye en 3 stages:
+1. **base**: Sistema operativo + FFmpeg + uv + Python 3.12
+2. **builder**: Descarga de dependencias Python (incluye PyTorch ~4 GB)
+3. **runtime**: Imagen final ligera con el código fuente y el venv poblado
+
+### 4.3 Inicializar Base de Datos (una vez)
+
+```bash
+docker compose --profile setup run --rm init-db
+```
+
+### 4.4 Descargar Modelos (una vez, ~10 GB)
+
+```bash
+docker compose --profile setup run --rm download-models
+```
+
+### 4.5 Levantar el Stack
+
+```bash
+docker compose up -d
+```
+
+Servicios disponibles:
+- **GUI (NiceGUI)**: http://localhost:7880
+- **Redis**: localhost:6379
+- **Qdrant**: localhost:6333
+
+---
+
+## 5. Configuración de Variables de Entorno
+
+### 5.1 Crear el archivo `.env`
 
 Copiar el ejemplo proporcionado:
 
@@ -185,7 +247,7 @@ PIXABAY_API_KEY=
 
 > **IMPORTANTE:** Nunca commitear el archivo `.env`. El `.gitignore` ya lo excluye.
 
-### 4.2 Obtener API Key de OpenRouter
+### 5.2 Obtener API Key de OpenRouter
 
 1. Registrar en [openrouter.ai](https://openrouter.ai/).
 2. Generar una API key en el panel de control.
@@ -193,15 +255,23 @@ PIXABAY_API_KEY=
 
 ---
 
-## 5. Descarga de Modelos de ML
+## 6. Descarga de Modelos de ML
 
-Los modelos se almacenan en `data/models/` (gitignored). Ejecutar el script de descarga:
+Los modelos se almacenan en `data/models/` (gitignored).
+
+### 6.1 Local
 
 ```bash
 uv run python infra/download_models.py
 ```
 
-### 5.1 Modelos Requeridos
+### 6.2 Docker
+
+```bash
+docker compose --profile setup run --rm download-models
+```
+
+### 6.3 Modelos Requeridos
 
 | Modelo | Ubicación Esperada | Tamaño Aprox. |
 |--------|-------------------|---------------|
@@ -217,48 +287,48 @@ ls -lah data/models/
 
 ---
 
-## 6. Inicialización de Servicios (Docker)
+## 7. Inicialización de Servicios
 
-### 6.1 Levantar Redis y Qdrant
+### 7.1 Local — Redis y Qdrant
 
 ```bash
 make up
 # Equivalente a: docker compose up -d redis qdrant
 ```
 
-### 6.2 Verificar Servicios
+### 7.2 Verificar Servicios
 
 ```bash
 docker ps
 # Debe mostrar redis:7-alpine y qdrant/qdrant:latest
 ```
 
-### 6.3 Inicializar Qdrant (Crear Collections)
+### 7.3 Inicializar Qdrant (Crear Collections)
 
 ```bash
+# Local
 uv run python infra/qdrant_init.py
+
+# Docker (ya incluido en el stack)
 ```
 
-Esto crea las colecciones vacías:
-- `assets_visual`
-- `assets_audio`
-- `transcript_chunks`
-
-### 6.4 Inicializar Base de Datos SQLite
+### 7.4 Inicializar Base de Datos SQLite
 
 ```bash
+# Local
 uv run autoedit db migrate
-```
 
-Crea `data/autoedit.db` con todas las tablas del esquema.
+# Docker
+docker compose --profile setup run --rm init-db
+```
 
 ---
 
-## 7. Configuración de Voz (TTS)
+## 8. Configuración de Voz (TTS)
 
 El sistema requiere un perfil de voz para generar narraciones clonadas.
 
-### 7.1 Grabar Audio de Referencia
+### 8.1 Grabar Audio de Referencia
 
 Requisitos del audio:
 - **Duración mínima:** 15 segundos (recomendado: 30+ segundos).
@@ -267,7 +337,7 @@ Requisitos del audio:
 
 Guardar el archivo, por ejemplo: `~/mi_voz.wav`.
 
-### 7.2 Registrar el Perfil de Voz
+### 8.2 Registrar el Perfil de Voz
 
 ```bash
 uv run autoedit voice register ~/mi_voz.wav me_v1 --name "Mi Voz"
@@ -278,7 +348,7 @@ El sistema:
 2. Transcribe automáticamente el contenido con Whisper (puedes proporcionar transcript manual con `--transcript`).
 3. Almacena el perfil en `data/voices/me_v1/`.
 
-### 7.3 Probar la Voz
+### 8.3 Probar la Voz
 
 ```bash
 uv run autoedit voice test "Esto es una prueba de narración con mi voz clonada" me_v1
@@ -292,15 +362,15 @@ ffplay data/voices/me_v1/test_*.wav
 
 ---
 
-## 8. Ingesta de Assets Iniciales
+## 9. Ingesta de Assets Iniciales
 
-### 8.1 Ingestar Emotes (Sin API Key)
+### 9.1 Ingestar Emotes (Sin API Key)
 
 ```bash
 uv run autoedit assets ingest bttv 7tv ffz --limit 200
 ```
 
-### 8.2 Ingestar SFX e Imágenes (Requiere API Keys)
+### 9.2 Ingestar SFX e Imágenes (Requiere API Keys)
 
 ```bash
 # Si configuraste FREESOUND_API_KEY en .env
@@ -310,7 +380,7 @@ uv run autoedit assets ingest freesound --limit 100
 uv run autoedit assets ingest pixabay --limit 100
 ```
 
-### 8.3 Verificar el Catálogo
+### 9.3 Verificar el Catálogo
 
 ```bash
 uv run autoedit assets stats
@@ -318,9 +388,9 @@ uv run autoedit assets stats
 
 ---
 
-## 9. Verificación del Sistema
+## 10. Verificación del Sistema
 
-### 9.1 Ejecutar Health Check Completo
+### 10.1 Ejecutar Health Check Completo
 
 ```bash
 uv run autoedit doctor
@@ -346,7 +416,7 @@ Salida esperada (ejemplo):
 All systems operational.
 ```
 
-### 9.2 Probar Conexión con OpenRouter
+### 10.2 Probar Conexión con OpenRouter
 
 ```bash
 uv run autoedit ping
@@ -354,9 +424,9 @@ uv run autoedit ping
 
 ---
 
-## 10. Puesta en Marcha
+## 11. Puesta en Marcha
 
-### 10.1 Procesar un VOD de Twitch (Manual)
+### 11.1 Procesar un VOD de Twitch (Manual)
 
 ```bash
 uv run autoedit job add "https://www.twitch.tv/videos/123456789" --clips 10 --lang es
@@ -372,13 +442,33 @@ uv run autoedit job direct <JOB_ID>
 uv run autoedit render edit --job-id <JOB_ID>
 ```
 
-### 10.2 Procesar un Video Local
+### 11.2 Procesar un Video Local
 
 ```bash
 uv run autoedit job local ~/Videos/mi_video.mp4 --clips 5 --until e8
 ```
 
-### 10.3 Lanzar el Dashboard Web
+### 11.3 Lanzar el Editor Visual (NiceGUI)
+
+```bash
+uv run autoedit gui
+```
+
+Abre automáticamente [http://localhost:7880](http://localhost:7880).
+
+Para cambiar de puerto:
+
+```bash
+uv run autoedit gui --port 7881
+```
+
+Para no abrir el navegador automáticamente:
+
+```bash
+uv run autoedit gui --no-browser
+```
+
+### 11.4 Lanzar el Dashboard (Gradio) — alternativa ligera
 
 ```bash
 uv run autoedit dashboard
@@ -386,7 +476,7 @@ uv run autoedit dashboard
 
 Abre automáticamente [http://localhost:7860](http://localhost:7860).
 
-### 10.4 Worker en Background (Opcional)
+### 11.5 Worker en Background (Opcional)
 
 ```bash
 make worker
@@ -396,9 +486,9 @@ uv run autoedit worker run
 
 ---
 
-## 11. Troubleshooting
+## 12. Troubleshooting
 
-### 11.1 CUDA no disponible en WSL2
+### 12.1 CUDA no disponible en WSL2
 
 **Síntoma:** `torch.cuda.is_available()` devuelve `False`.
 
@@ -413,7 +503,7 @@ uv run autoedit worker run
    docker run --rm --gpus all nvidia/cuda:12.0-base nvidia-smi
    ```
 
-### 11.2 Out of Memory (OOM) durante pipeline
+### 12.2 Out of Memory (OOM) durante pipeline
 
 **Síntoma:** Error `CUDA out of memory` en E2, E6 o E8.
 
@@ -423,7 +513,7 @@ uv run autoedit worker run
 3. Verificar que solo un worker corre a la vez.
 4. Reiniciar WSL2: `wsl --shutdown` y volver a iniciar.
 
-### 11.3 Redis o Qdrant no responden
+### 12.3 Redis o Qdrant no responden
 
 **Síntoma:** `doctor` marca FAIL en Redis/Qdrant.
 
@@ -435,7 +525,7 @@ docker logs redis
 docker logs qdrant
 ```
 
-### 11.4 yt-dlp falla en descarga
+### 12.4 yt-dlp falla en descarga
 
 **Síntoma:** Error 403 o VOD no encontrado.
 
@@ -447,7 +537,7 @@ docker logs qdrant
 2. Verificar que el VOD es público.
 3. Si Twitch requiere login, considerar cookies (no implementado en sprint actual).
 
-### 11.5 F5-TTS genera audio distorsionado
+### 12.5 F5-TTS genera audio distorsionado
 
 **Síntoma:** La narración suena robótica o con ruido.
 
@@ -456,7 +546,7 @@ docker logs qdrant
 2. Re-registrar el perfil con mejor calidad de audio.
 3. Asegurar que el texto de narración no excede 300 caracteres.
 
-### 11.6 FFmpeg no encuentra NVENC
+### 12.6 FFmpeg no encuentra NVENC
 
 **Síntoma:** `doctor` muestra "No NVENC encoders found".
 
@@ -468,31 +558,52 @@ docker logs qdrant
    ffmpeg -hide_banner -encoders | grep nvenc
    ```
 
+### 12.7 NiceGUI no carga el timeline canvas
+
+**Síntoma:** El editor de timeline aparece en blanco.
+
+**Soluciones:**
+1. Verificar que no hay bloqueadores de JavaScript en el navegador.
+2. Revisar consola del navegador (F12) por errores de `timeline.js`.
+3. Recargar la página con Ctrl+F5 (hard refresh).
+
+### 12.8 Docker — GPU no disponible en contenedor
+
+**Síntoma:** El worker Docker no detecta CUDA.
+
+**Soluciones:**
+1. Verificar que NVIDIA Container Toolkit está instalado en el host.
+2. Verificar que el daemon de Docker reconoce el runtime nvidia:
+   ```bash
+   docker info | grep -i nvidia
+   ```
+3. Reiniciar Docker Desktop después de instalar el toolkit.
+
 ---
 
-## 12. Mantenimiento y Actualización
+## 13. Mantenimiento y Actualización
 
-### 12.1 Actualizar Dependencias
+### 13.1 Actualizar Dependencias
 
 ```bash
 uv sync --extra dev
 ```
 
-### 12.2 Actualizar Modelos
+### 13.2 Actualizar Modelos
 
 ```bash
 rm -rf data/models/*
 uv run python infra/download_models.py
 ```
 
-### 12.3 Backup de la Base de Datos
+### 13.3 Backup de la Base de Datos
 
 ```bash
 uv run autoedit db backup
 # Crea: data/autoedit.db.backup.YYYY-MM-DD_HHMMSS
 ```
 
-### 12.4 Limpieza de Archivos Temporales
+### 13.4 Limpieza de Archivos Temporales
 
 ```bash
 # Limpiar caché TTS antiguo (> 90 días)
@@ -502,12 +613,51 @@ find data/cache/tts -type f -mtime +90 -delete
 rm -rf tmp/*
 ```
 
-### 12.5 Actualizar yt-dlp
+### 13.5 Actualizar yt-dlp
 
 ```bash
 uv pip install -U yt-dlp
 ```
 
+### 13.6 Actualizar Imagen Docker
+
+```bash
+docker compose build --no-cache
+docker compose up -d
+```
+
 ---
 
-*Fin del Manual de Implementación.*
+## 14. Novedades v1.1
+
+### 14.1 Instalación Docker
+
+A partir de la v1.1, el proyecto incluye soporte completo para Docker:
+
+- **Dockerfile multi-stage** optimizado para CUDA 12.8 + cuDNN 9.
+- **Docker Compose** con servicios: Redis, Qdrant, GUI (NiceGUI) y Worker.
+- **Perfiles de setup** (`--profile setup`) para inicialización y descarga de modelos.
+- El stack Docker es la forma recomendada de deployment para producción o para evitar configurar WSL2 manualmente.
+
+### 14.2 Nueva Interfaz — Editor NiceGUI
+
+La v1.1 introduce un editor visual completo que coexiste con el Dashboard Gradio:
+
+- **NiceGUI** requiere `nicegui>=1.4` (ya incluido en `pyproject.toml`).
+- Se lanza con `autoedit gui` en el puerto 7880.
+- En Docker, el servicio `gui` expone automáticamente el puerto 7880.
+
+### 14.3 Layout Split-Screen
+
+Nuevo parámetro `--layout` en el comando `render`:
+
+- **`crop`** (default): recorte tradicional.
+- **`split`**: pantalla dividida para formato vertical. Requiere MediaPipe para detección facial.
+
+### 14.4 Deduplicación
+
+Nueva etapa automática post-E7 que reduce clips duplicados. No requiere configuración manual; el umbral IoU se puede ajustar en código si es necesario.
+
+---
+
+*Fin del Manual de Implementación v1.1.*
