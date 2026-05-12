@@ -84,11 +84,12 @@ services:
     environment:
       QDRANT__SERVICE__GRPC_PORT: 6334
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:6333/healthz || exit 1"]
-      interval: 10s
+      # qdrant/qdrant has neither curl nor wget; use bash /dev/tcp for a port check.
+      test: ["CMD-SHELL", "bash -c 'echo >/dev/tcp/localhost/6333' 2>/dev/null || exit 1"]
+      interval: 5s
       timeout: 5s
-      retries: 10
-      start_period: 15s
+      retries: 20
+      start_period: 10s
 
   # ── GUI — NiceGUI web editor ───────────────────────────────────────────────
   gui:
@@ -102,7 +103,7 @@ services:
   # GPU stages run sequentially: Whisper → CLIP → F5-TTS → NVENC render.
   worker:
     <<: *app-base
-    command: autoedit worker start
+    command: autoedit worker run
 
   # ── download-models ── run once before first use ───────────────────────────
   # Downloads faster-whisper large-v3 + creates placeholder dirs for CLIP / F5-TTS.
@@ -119,7 +120,7 @@ services:
   #   docker compose --profile setup run --rm init-db
   init-db:
     <<: *app-base
-    command: autoedit db init
+    command: autoedit db migrate
     restart: "no"
     profiles:
       - setup

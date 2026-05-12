@@ -75,6 +75,9 @@ COPY --from=builder /opt/venv /opt/venv
 # Application source — copied after deps so this (frequently-changing) layer
 # doesn't invalidate the expensive deps layer above.
 COPY pyproject.toml uv.lock ./
+# README.md is required by hatchling (pyproject.toml: readme = "README.md").
+# Without it, `uv sync` fails with OSError at build time.
+COPY README.md ./
 COPY src/ ./src/
 COPY infra/ ./infra/
 

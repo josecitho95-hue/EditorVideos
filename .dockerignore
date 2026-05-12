@@ -40,6 +40,9 @@ Thumbs.db
 
 # ── Docs that don't belong in the image ───────────────────────────────────────
 *.md
+# Exception: README.md is referenced by pyproject.toml (hatchling build backend).
+# Without it, `uv sync` / `pip install -e .` fails with OSError.
+!README.md
 LICENSE
 docs/
 htmlcov/

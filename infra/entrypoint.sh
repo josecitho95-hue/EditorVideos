@@ -78,7 +78,7 @@ wait_for_port "$_qdrant_host" "$_qdrant_port" "Qdrant" 40 2
 
 # ── Initialise database ────────────────────────────────────────────────────────
 _info "Initialising database (idempotent) ..."
-autoedit db init
+autoedit db migrate
 _ok "Database ready."
 
 # ── Hand over to the CMD ───────────────────────────────────────────────────────
